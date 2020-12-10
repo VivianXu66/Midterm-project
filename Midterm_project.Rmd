@@ -1,0 +1,421 @@
+---
+title: "Midterm Project"
+author: "Jingwen Xu"
+date: "2020/12/10"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(readr)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(gridExtra)
+library(ggExtra)
+library(kableExtra)
+library(arm)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Abstract
+
+  In this project, I mainly set up a model to predict the possibility of customers from an insurance company that are interested in vehicle insurance offered by the company. In kaggle website, some data scientists have made EDA, feature engineering and modeling about the data. I also make EDA using stacked bar to show the proportion of binary outcome in variables, and construct a multilevel logistic regression model to further explore the relationship between predictors and outcome with model check and inference. I am pretty satisfied with the results, because the coefficients of the model line up with the data visualization about the data. In summary, most of the customers are not interested in the vehicle insurance, but young male customers with car aged 1-2 years and no other vehicle insurance can be the potential client of selling the vehicle insurance offered by the company.
+
+## Introduction
+
+  An insurance company had provided health insurance for customers, and now the company wants to predict the responses of its customers to vehicle insurance. So they need the help of data scientists to do data analysis which will be beneficial to their decision about the insurance policy, sale channel and so on.
+
+  The data is collected in customers by the company, divided into train data (more than 380,000 observations) and test data (more than 127,000 observations). The data includes the demographics information, vehicle information and insurance policy of these customers. Based on the requirement of the company, I will do exploratory data analysis and modeling (here I choose multilevel logistic regression) using train data to explore the relationship between the customers' information and their interest to vehicle insurance. And then I will make prediction with test data and compare the outcome with true values.
+
+## Method
+
+```{r warning=FALSE,echo=FALSE,message=FALSE}
+## read the data
+test <- read.csv("test.csv")
+train <- read.csv("train.csv")
+submission <- read.csv("sample_submission.csv")
+test <- left_join(test, submission, join="id")
+```
+### Exploratory Data Analysis
+
+  From the data table, we can see that the data has already been tidy so I don't need to make preliminary data cleaning. Before modeling, we usually use EDA to investigate the relationship between possible predictors and outcome to make some comparison.
+  
+  In this project, the outcome is binary - whether the customers are interested in the vehicle insurance. Besides, the data includes categorical variables and continuous variables as possible predictors. Here I use different functions in *ggplot* package to do data visualizations about different types of variables.
+  
+  At first, according to the summary of the data, *Region_Code*, *Vintage* and *Policy_Sales_Channel* are all categorical variables with more than 50 categories. And the distribution of these categories are extremely unbalanced. So in order to make the plot more aesthetic and readable, I arrange the counts for each category and only show the binary responses' proportions in top 5 categories with stacked bar plot.
+  
+```{r, fig.cap="Proportion of responses in categorical variable(more than 50 categories)", warning=FALSE,message=FALSE,echo=FALSE}
+## For categorical predictors with more than 10 categories
+
+train_region <- train %>% group_by(Region_Code,Response) %>% summarise(Count=n())
+##summary(train_region$Count)
+train_region_1 <- train_region %>% group_by(Region_Code) %>% summarise(Sum=sum(Count)) %>% arrange(desc(Sum))
+train_region %<>% filter(Region_Code==28|Region_Code==8|Region_Code==46|Region_Code==41|Region_Code==15)
+region <- train_region$Region_Code
+response_6 <- rep(c("Not Interested","Interested"),5)
+value_6 <- train_region$Count
+data_6 <- data.frame(region,response_6,value_6)
+p6 <- ggplot(data_6,aes(fill=response_6,y=value_6,x=as.character(region)))+
+    geom_bar(position="stack",stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2")+labs(fill="Response")+xlab("Region Code")+ylab("Count")
+
+train_channel <- train %>% group_by(Policy_Sales_Channel,Response) %>% summarise(Count=n())
+##summary(train_channel$Count)
+train_channel_1 <- train_channel %>% group_by(Policy_Sales_Channel) %>% summarise(Sum=sum(Count)) %>% arrange(desc(Sum))
+train_channel %<>% filter(Policy_Sales_Channel==152|Policy_Sales_Channel==26|Policy_Sales_Channel==124|Policy_Sales_Channel==160|Policy_Sales_Channel==156)
+channel <- train_channel$Policy_Sales_Channel
+response_7 <- rep(c("Not Interested","Interested"),5)
+value_7 <- train_channel$Count
+data_7 <- data.frame(channel,response_7,value_7)
+p7 <- ggplot(data_7,aes(fill=response_7,y=value_7,x=as.character(channel)))+
+    geom_bar(position="stack",stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2")+labs(fill="Response")+xlab("Sales Channel")+ylab("Count")
+
+train_vintage <- train %>% group_by(Vintage,Response) %>% summarise(Count=n())
+##summary(train_vintage$Count)
+train_vintage_1 <- train_vintage %>% group_by(Vintage) %>% summarise(Sum=sum(Count)) %>% arrange(desc(Sum))
+train_vintage %<>% filter(Vintage==256|Vintage==73|Vintage==282|Vintage==158|Vintage==187)
+vintage <- train_vintage$Vintage
+response_8 <- rep(c("Not Interested","Interested"),5)
+value_8 <- train_vintage$Count
+data_8 <- data.frame(vintage,response_8,value_8)
+p8 <- ggplot(data_8,aes(fill=response_8,y=value_8,x=as.character(vintage)))+
+    geom_bar(position="stack",stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2")+labs(fill="Response")+xlab("Vintage")+ylab("Count")
+
+
+grid.arrange(arrangeGrob(p6,p7,p8,ncol=2))
+```
+  
+  From the plot, we can obtain following information. Firstly, there are the most observations from region 28 and sales channel 152. Secondly, obviously most of the customers are not interested in the vehicle insurance for each category. Thirdly, for region 28 and sales channel 152, the customers that are interested take the largest proportion compared with other categories. Last, there are trivial differences between the proportion of interested for different vintage categories.
+  
+  Then, for binary or ternary categorical variables *Gender*, *Driving_License*, *Previously_Insured*, *Vehicle_Age* and *Vehicle_Damage*, I also make stacked bar plot which is appropriate to display the proportions of binary responses in different categories of certain variable. This method is corresponded to the outcome (probability of interested or not interested) of multilevel logistics regression model. And last, for continuous variables *Age* and *Annual_Premium*, I can just make a scatter plot. But to show the distribution of responses and the continuous variables, I add the marginal density plots to it.
+  
+```{r, fig.cap="Proportion of responses in binary or ternary categorical variable", warning=FALSE,message=FALSE,echo=FALSE}
+## Data visualization
+## For categorical predictors
+train_gender <- train %>% group_by(Gender,Response) %>% summarise(Count=n())
+gender <- c(rep("Female",2),rep("Male",2))
+response_1 <- rep(c("Not Interested","Interested"),2)
+value_1 <- train_gender$Count
+data_1 <- data.frame(gender,response_1,value_1)
+p1 <- ggplot(data_1, aes(fill=response_1, y=value_1, x=gender)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")
+
+train_license <- train %>% group_by(Driving_License,Response) %>% summarise(Count=n())
+license <- c(rep("No License",2),rep("License",2))
+response_2 <- rep(c("Not Interested","Interested"),2)
+value_2 <- train_license$Count
+data_2 <- data.frame(license,response_2,value_2)
+p2 <- ggplot(data_2, aes(fill=response_2, y=value_2, x=license)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")
+
+train_insured <- train %>% group_by(Previously_Insured,Response) %>% summarise(Count=n())
+insured <- c(rep("No Insured",2),rep("Insured",2))
+response_3 <- rep(c("Not Interested","Interested"),2)
+value_3 <- train_insured$Count
+data_3 <- data.frame(insured,response_3,value_3)
+p3 <- ggplot(data_3, aes(fill=response_3, y=value_3, x=insured)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")
+
+train_ve_age <- train %>% group_by(Vehicle_Age,Response) %>% summarise(Count=n())
+vehicle_age <- c(rep("<1 Year",2),rep(">2 Years",2),rep("1-2 Year",2))
+response_4 <- rep(c("Not Interested","Interested"),3)
+value_4 <- train_ve_age$Count
+data_4 <- data.frame(vehicle_age,response_4,value_4)
+p4 <- ggplot(data_4, aes(fill=response_4, y=value_4, x=vehicle_age)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")+xlab("Vehicle Age")
+
+train_ve_damage <- train %>% group_by(Vehicle_Damage,Response) %>% summarise(Count=n())
+vehicle_damage <- c(rep("No Damage",2),rep("Damage",2))
+response_5 <- rep(c("Not Interested","Interested"),2)
+value_5 <- train_ve_damage$Count
+data_5 <- data.frame(vehicle_damage,response_5,value_5)
+p5 <- ggplot(data_5, aes(fill=response_5, y=value_5, x=vehicle_damage)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")+xlab("Vehicle Damage")
+
+grid.arrange(arrangeGrob(p1,p2,p3,p4,p5,ncol=2))
+
+```
+
+  In the plot, we can see that customers who are not interested in vehicle insurance take a very large proportion in each category of all the variables. Respectively, for *Gender* variable, male will be more possible to give positive response to vehicle insurance which is reasonable because male usually more care about their cars. For *Driving_License* variable, the number of people without license is too small to clearly compare the proportion of response for the two categories. For *Previously_Insured* variable, people who have had vehicle insurance hardly consider to buy another one. For *Vehicle_Age* variable, people with the car aged 1-2 years will be more likely to be interested in vehicle insurance. Because the cars aged less than 1 year are nearly new that do not need to too care, and the cars aged more than 2 years may be replaced. Lastly for *Vehicle_Damage* variable, cars without damage usually don't need a vehicle insurance.
+
+  About the plot of continuous variables(it's in Appendix because the plot always shows behind a blank plot), it's obvious that zero response always take the most proportion. Besides, customers investigated are mostly young and pay a fairly low annual premium. As for the probability of response along with these two continuous variables, we need to observe through the model.
+
+### Data Processing
+
+  Before modeling, we also need to do some operations on the data such as data transformation. First of all, I transform the character categories of some categorical variables to "0, 1" or "1, 2, 3" - factor variables. And then, because of the extremely large range of annual premium, I use log transformation to re-scale it. Also for more convenience to interpret, I normalize the age variable so that we can use the mean age as the baseline. At last, I make a data table to show the transformed variables.
+
+```{r warning=FALSE,echo=FALSE,message=FALSE}
+## Transform the character variables into factor variables.
+train$Gender <- ifelse(train$Gender=="Male",1,0)
+train$Vehicle_Damage <- ifelse(train$Vehicle_Damage=="Yes",1,0)
+train$Vehicle_Age <- ifelse(train$Vehicle_Age=="< 1 Year",1,ifelse(train$Vehicle_Age=="1-2 Year",2,3))
+
+## To make it easier to interpret, center the Age variable
+train$c_Age <- (train$Age-mean(train$Age))/sd(train$Age)
+## According to summary(train$Annual_Premium), the range is so large that we need to use log transformation to make it smaller
+train$log_Annual_Premium <- log(train$Annual_Premium)
+
+transform_data <- data.frame(train$Gender,train$c_Age,train$Vehicle_Age,train$Vehicle_Damage,train$log_Annual_Premium)
+colnames(transform_data) <- c("Gender","c_Age","Vehicle_Age","Vehicle_Damage","log_Annual_Premium")
+kable(head(transform_data)) %>% kable_styling(font_size=6)
+
+```
+
+### Model
+
+  - Predictors: Referring to the data visualization in EDA part, nearly all the variables except for *Vintage* variable have obvious correspondence with the binary outcome so I choose all the variables except for *Vintage* as predictors. 
+  - Model select: Firstly, this is undoubtedly a logistic model due to the binary outcome. Secondly, I choose *Region_Code* and *Policy_Sales_Channel* as the two group levels of multilevel model because they will be collinear with intercept and cause no pooling situation in just logistic regression.(Using *arm* package)
+  - Data in model: In order to make prediction using test data, I must filter the data to make sure that the train data and test data has totally the same group level.
+
+```{r warning=FALSE,echo=FALSE,message=FALSE}
+## Filter the groups that are the same with test data
+train %<>% filter(Policy_Sales_Channel!=27&Policy_Sales_Channel!=28&Policy_Sales_Channel!=41&Policy_Sales_Channel!=50&Policy_Sales_Channel!=67&Policy_Sales_Channel!=68&Policy_Sales_Channel!=75&Policy_Sales_Channel!=84&Policy_Sales_Channel!=104&Policy_Sales_Channel!=143&Policy_Sales_Channel!=144&Policy_Sales_Channel!=149)
+
+fit <- glmer(Response~Gender+c_Age+Driving_License+Previously_Insured+Vehicle_Age+Vehicle_Damage+log_Annual_Premium+(1|Region_Code)+(1|Policy_Sales_Channel),data=train,family=binomial,control=glmerControl("bobyqa"),nAGQ=0) ## The method of glmerControl is from Zhitian Liu
+```
+
+## Results
+
+### Model coefficients
+  
+  Except that age and previously insured are negatively correspond to the outcome, other predictors are all positively related to the outcome. And all the fixed coefficients are significant because the estimates are more than to two standard error from zero. Besides, the negative or positive random effects are nearly equal for each of the two group levels(see the histogram in Appendix). I also calculated the confidence interval of fixed effects as following:
+  
+```{r echo=FALSE}
+confi <- confint(fit,method="Wald")
+confi <- data.frame(confi)
+kable(confi)
+```
+  
+### Model Checking/Predictions
+
+  - Binned residual plot:
+  
+   From the binned residual plot, we can see that most of the observations are between the two boundary which indicates theoretical 95% error bounds that would be appropriate if the model were true. And average residuals - positive or negative ones - are pretty evenly distributed for each point of expected values. But for the expected values near to 0.5, the average residuals are abnormally low. So the model are fitted good with just several tricky problems such as the outliers. Besides, the probabilities of interested response are nearly all less than 0.5 or just 0.
+   
+```{r, fig.cap="Binned residual plot", warning=FALSE,echo=FALSE,message=FALSE}
+response <- model.matrix(~Response-1,data=train)
+residuals <- response-fitted(fit)
+binnedplot(fitted(fit),residuals)
+```
+
+  - Predict using test data:
+
+```{r warning=FALSE,echo=FALSE,message=FALSE}
+test$Gender <- ifelse(test$Gender=="Male",1,0)
+test$Vehicle_Damage <- ifelse(test$Vehicle_Damage=="Yes",1,0)
+test$Vehicle_Age <- ifelse(test$Vehicle_Age=="< 1 Year",1,ifelse(test$Vehicle_Age=="1-2 Year",2,3))
+test$c_Age <- (test$Age-mean(test$Age))/sd(test$Age)
+test$log_Annual_Premium <- log(test$Annual_Premium)
+test %<>% filter(Policy_Sales_Channel!=141&Policy_Sales_Channel!=142)
+
+test_predict <- predict(fit,test,type="response")
+```
+  According to the distribution of predicted values in test data(the histogram of distribution is in Appendix), the possibilities of positive responses are nearly all less than 0.5 which are consistent with all zero response in the test data. So the prediction using the model is pretty good.
+  
+## Discussion
+  
+  The results fairly line up with what I expect that the great majority of customers will not be interested in the vehicle insurance. I recommend the insurance company to focus on young male customers with car aged 1-2 years to sell the vehicle insurance.
+  
+  As for the limitation of the data, the most outstanding problem is that some variables are extremely unevenly distributed. For example, there are only near 1000 customers without driving license. To make the data analysis more precise, I need to learn how to deal with unbalanced variables in the future to improve the model. Besides, there are several hard code in coding process. I hope to fix them using certain function if I can find such a proper function or calculation. Lastly, I think that the model should be simplified for next step because of its large AIC value.
+
+## Bibliography
+
+(1)H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+
+(2)Yihui Xie (2020). knitr: A General-Purpose Package for Dynamic Report Generation in R. R package version 1.29.
+
+(3)Stefan Milton Bache and Hadley Wickham (2014). magrittr: A Forward-Pipe Operator for R. R package version 1.5. https://CRAN.R-project.org/package=magrittr.
+
+(4)Hao Zhu (2020). kableExtra: Construct Complex Table with 'kable' and Pipe Syntax. R package version 1.2.1. https://CRAN.R-project.org/package=kableExtra.
+
+(5)Hadley Wickham, Romain Fran?ois, Lionel Henry and Kirill Müller (2020). dplyr: A Grammar of Data Manipulation. R package version 1.0.2 https://CRAN.R-project.org/package=dplyr
+
+(6)Andrew Gelman and Yu-Sung Su (2020). arm: Data Analysis Using Regression and Multilevel/Hierarchical Models. R package version 1.11-2. https://CRAN.R-project.org/package=arm
+
+(7)Dean Attali and Christopher Baker (2019). ggExtra: Add Marginal Histograms to 'ggplot2', and More 'ggplot2' Enhancements. R package version 0.9. https://CRAN.R-project.org/package=ggExtra
+
+(8)Kaggle. (2020). Health Insurance Cross Sell Prediction. Available from https://www.kaggle.com/anmolkumar/health-insurance-cross-sell-prediction?select=train.csv
+
+
+\newpage
+## Appendix
+
+### The code of EDA part
+
+```{r warning=FALSE,message=FALSE}
+test <- read.csv("test.csv")
+train <- read.csv("train.csv")
+submission <- read.csv("sample_submission.csv")
+test <- left_join(test, submission, join="id")
+
+## For categorical predictors with more than 10 categories
+
+train_region <- train %>% group_by(Region_Code,Response) %>% summarise(Count=n())
+##summary(train_region$Count)
+train_region_1 <- train_region %>% group_by(Region_Code) %>% summarise(Sum=sum(Count)) %>% arrange(desc(Sum))
+train_region %<>% filter(Region_Code==28|Region_Code==8|Region_Code==46|Region_Code==41|Region_Code==15)
+region <- train_region$Region_Code
+response_6 <- rep(c("Not Interested","Interested"),5)
+value_6 <- train_region$Count
+data_6 <- data.frame(region,response_6,value_6)
+p6 <- ggplot(data_6,aes(fill=response_6,y=value_6,x=as.character(region)))+
+    geom_bar(position="stack",stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2")+labs(fill="Response")+xlab("Region Code")+ylab("Count")
+
+train_channel <- train %>% group_by(Policy_Sales_Channel,Response) %>% summarise(Count=n())
+##summary(train_channel$Count)
+train_channel_1 <- train_channel %>% group_by(Policy_Sales_Channel) %>% summarise(Sum=sum(Count)) %>% arrange(desc(Sum))
+train_channel %<>% filter(Policy_Sales_Channel==152|Policy_Sales_Channel==26|Policy_Sales_Channel==124|Policy_Sales_Channel==160|Policy_Sales_Channel==156)
+channel <- train_channel$Policy_Sales_Channel
+response_7 <- rep(c("Not Interested","Interested"),5)
+value_7 <- train_channel$Count
+data_7 <- data.frame(channel,response_7,value_7)
+p7 <- ggplot(data_7,aes(fill=response_7,y=value_7,x=as.character(channel)))+
+    geom_bar(position="stack",stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2")+labs(fill="Response")+xlab("Sales Channel")+ylab("Count")
+
+train_vintage <- train %>% group_by(Vintage,Response) %>% summarise(Count=n())
+##summary(train_vintage$Count)
+train_vintage_1 <- train_vintage %>% group_by(Vintage) %>% summarise(Sum=sum(Count)) %>% arrange(desc(Sum))
+train_vintage %<>% filter(Vintage==256|Vintage==73|Vintage==282|Vintage==158|Vintage==187)
+vintage <- train_vintage$Vintage
+response_8 <- rep(c("Not Interested","Interested"),5)
+value_8 <- train_vintage$Count
+data_8 <- data.frame(vintage,response_8,value_8)
+p8 <- ggplot(data_8,aes(fill=response_8,y=value_8,x=as.character(vintage)))+
+    geom_bar(position="stack",stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2")+labs(fill="Response")+xlab("Vintage")+ylab("Count")
+
+```
+
+
+```{r warning=FALSE,message=FALSE}
+## Data visualization
+## For categorical predictors
+train_gender <- train %>% group_by(Gender,Response) %>% summarise(Count=n())
+gender <- c(rep("Female",2),rep("Male",2))
+response_1 <- rep(c("Not Interested","Interested"),2)
+value_1 <- train_gender$Count
+data_1 <- data.frame(gender,response_1,value_1)
+p1 <- ggplot(data_1, aes(fill=response_1, y=value_1, x=gender)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")
+
+train_license <- train %>% group_by(Driving_License,Response) %>% summarise(Count=n())
+license <- c(rep("No License",2),rep("License",2))
+response_2 <- rep(c("Not Interested","Interested"),2)
+value_2 <- train_license$Count
+data_2 <- data.frame(license,response_2,value_2)
+p2 <- ggplot(data_2, aes(fill=response_2, y=value_2, x=license)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")
+
+train_insured <- train %>% group_by(Previously_Insured,Response) %>% summarise(Count=n())
+insured <- c(rep("No Insured",2),rep("Insured",2))
+response_3 <- rep(c("Not Interested","Interested"),2)
+value_3 <- train_insured$Count
+data_3 <- data.frame(insured,response_3,value_3)
+p3 <- ggplot(data_3, aes(fill=response_3, y=value_3, x=insured)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")
+
+train_ve_age <- train %>% group_by(Vehicle_Age,Response) %>% summarise(Count=n())
+vehicle_age <- c(rep("<1 Year",2),rep(">2 Years",2),rep("1-2 Year",2))
+response_4 <- rep(c("Not Interested","Interested"),3)
+value_4 <- train_ve_age$Count
+data_4 <- data.frame(vehicle_age,response_4,value_4)
+p4 <- ggplot(data_4, aes(fill=response_4, y=value_4, x=vehicle_age)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")+xlab("Vehicle Age")
+
+train_ve_damage <- train %>% group_by(Vehicle_Damage,Response) %>% summarise(Count=n())
+vehicle_damage <- c(rep("No Damage",2),rep("Damage",2))
+response_5 <- rep(c("Not Interested","Interested"),2)
+value_5 <- train_ve_damage$Count
+data_5 <- data.frame(vehicle_damage,response_5,value_5)
+p5 <- ggplot(data_5, aes(fill=response_5, y=value_5, x=vehicle_damage)) + 
+    geom_bar(position="stack", stat="identity")+theme(
+    axis.text = element_text(size = 7),
+        axis.title = element_text(size = 9, face = "bold"),
+    legend.title = element_text(size=9),
+    legend.text = element_text(size = 9))+scale_fill_brewer(palette = "Pastel2") + labs(fill="Response")+ylab("Count")+xlab("Vehicle Damage")
+
+## For continuout predictors
+g1 <- ggplot(data=train)+geom_point(aes(x=Response,y=Age))
+g1_1 <- ggMarginal(g1, type="density")
+
+g2 <- ggplot(data=train)+geom_point(aes(x=Response,y=Annual_Premium))
+g2_1 <- ggMarginal(g2, type="density")
+
+grid.arrange(arrangeGrob(g1_1,g2_1,ncol=2))
+```
+
+### The results of modeling
+
+```{r}
+summary(fit)
+ranef(fit)
+
+ranef <- ranef(fit)
+hist(ranef$Policy_Sales_Channel)
+hist(ranef$Region_Code)
+```
+
+### The prediction of test data
+
+```{r}
+hist(test_predict)
+```
+
